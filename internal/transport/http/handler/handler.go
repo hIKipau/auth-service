@@ -15,13 +15,14 @@ import (
 )
 
 type Handlers struct {
-	uc        AuthService
-	accessTTL time.Duration
+	uc         AuthService
+	accessTTL  time.Duration
 	refreshTTL time.Duration
+	secure     bool
 }
 
-func NewHandlers(service AuthService, accessTTL, refreshTTL time.Duration) *Handlers {
-	return &Handlers{uc: service, accessTTL: accessTTL, refreshTTL: refreshTTL}
+func NewHandlers(service AuthService, accessTTL, refreshTTL time.Duration, secure bool) *Handlers {
+	return &Handlers{uc: service, accessTTL: accessTTL, refreshTTL: refreshTTL, secure: secure}
 }
 
 // Login godoc
@@ -176,7 +177,7 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clearTokenCookies(w)
+	h.clearTokenCookies(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -185,7 +186,7 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 // @Description  Returns profile of the authenticated user
 // @Tags         auth
 // @Produce      json
-// @Security     BearerAuth
+// @Security     CookieAuth
 // @Success      200  {object}  MeResponse
 // @Failure      401  {object}  ErrorResponse  "Missing or invalid access token"
 // @Failure      429  {object}  ErrorResponse
@@ -271,6 +272,7 @@ func (h *Handlers) setTokenCookies(w http.ResponseWriter, toks *usecase.AuthToke
 		Name:     "access_token",
 		Value:    toks.AccessToken,
 		HttpOnly: true,
+		Secure:   h.secure,
 		SameSite: http.SameSiteStrictMode,
 		Path:     "/",
 		MaxAge:   int(h.accessTTL.Seconds()),
@@ -279,13 +281,14 @@ func (h *Handlers) setTokenCookies(w http.ResponseWriter, toks *usecase.AuthToke
 		Name:     "refresh_token",
 		Value:    toks.RefreshToken,
 		HttpOnly: true,
+		Secure:   h.secure,
 		SameSite: http.SameSiteStrictMode,
 		Path:     "/",
 		MaxAge:   int(h.refreshTTL.Seconds()),
 	})
 }
 
-func clearTokenCookies(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: "access_token",  HttpOnly: true, Path: "/", MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: "refresh_token", HttpOnly: true, Path: "/", MaxAge: -1})
+func (h *Handlers) clearTokenCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: "access_token",  HttpOnly: true, Secure: h.secure, Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", HttpOnly: true, Secure: h.secure, Path: "/", MaxAge: -1})
 }

@@ -12,11 +12,6 @@ definitions:
       password:
         type: string
     type: object
-  handler.LogoutRequest:
-    properties:
-      refresh_token:
-        type: string
-    type: object
   handler.MeResponse:
     properties:
       id:
@@ -26,23 +21,11 @@ definitions:
       role:
         type: string
     type: object
-  handler.RefreshRequest:
-    properties:
-      refresh_token:
-        type: string
-    type: object
   handler.RegisterRequest:
     properties:
       login:
         type: string
       password:
-        type: string
-    type: object
-  handler.TokensResponse:
-    properties:
-      access_token:
-        type: string
-      refresh_token:
         type: string
     type: object
 host: localhost:8080
@@ -87,8 +70,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Authenticate with login and password, receive access + refresh
-        tokens
+      description: Authenticate with login and password; tokens are set as HttpOnly
+        cookies
       parameters:
       - description: Credentials
         in: body
@@ -101,8 +84,6 @@ paths:
       responses:
         "200":
           description: OK
-          schema:
-            $ref: '#/definitions/handler.TokensResponse'
         "400":
           description: Bad Request
           schema:
@@ -124,24 +105,14 @@ paths:
       - auth
   /auth/logout:
     post:
-      consumes:
-      - application/json
-      description: Revoke the provided refresh token; idempotent — safe to call even
-        if already logged out
-      parameters:
-      - description: Refresh token to revoke
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handler.LogoutRequest'
+      description: Revoke the refresh_token cookie; clears both auth cookies
       produces:
       - application/json
       responses:
         "204":
           description: No Content
-        "400":
-          description: Bad Request
+        "401":
+          description: Unauthorized
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
         "429":
@@ -178,36 +149,21 @@ paths:
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
       security:
-      - BearerAuth: []
+      - CookieAuth: []
       summary: Get current user
       tags:
       - auth
   /auth/refresh:
     post:
-      consumes:
-      - application/json
-      description: Exchange a valid refresh token for a new access + refresh token
-        pair (rotation)
-      parameters:
-      - description: Refresh token
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/handler.RefreshRequest'
+      description: Exchange a valid refresh_token cookie for a new access + refresh
+        token pair (rotation)
       produces:
       - application/json
       responses:
         "200":
           description: OK
-          schema:
-            $ref: '#/definitions/handler.TokensResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
         "401":
-          description: Token invalid, expired, or already used
+          description: Cookie missing, token invalid, expired, or already used
           schema:
             $ref: '#/definitions/handler.ErrorResponse'
         "429":
@@ -225,7 +181,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new user account; returns access + refresh tokens on success
+      description: Create a new user account; tokens are set as HttpOnly cookies on
+        success
       parameters:
       - description: Registration data
         in: body
@@ -238,8 +195,6 @@ paths:
       responses:
         "201":
           description: Created
-          schema:
-            $ref: '#/definitions/handler.TokensResponse'
         "400":
           description: Bad Request
           schema:
@@ -260,9 +215,8 @@ paths:
       tags:
       - auth
 securityDefinitions:
-  BearerAuth:
-    description: Enter the token with the `Bearer ` prefix, e.g. "Bearer eyJ..."
-    in: header
-    name: Authorization
+  CookieAuth:
+    in: cookie
+    name: access_token
     type: apiKey
 swagger: "2.0"

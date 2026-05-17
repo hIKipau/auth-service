@@ -14,21 +14,23 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Router(service *usecase.AuthUsecase, publicKey *rsa.PublicKey, keyID string, parseToken func(string) (uuid.UUID, error), accessTTL, refreshTTL time.Duration) http.Handler {
+func Router(service *usecase.AuthUsecase, publicKey *rsa.PublicKey, keyID string, parseToken func(string) (uuid.UUID, error), accessTTL, refreshTTL time.Duration, env string) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 
-	handlers := handler.NewHandlers(service, accessTTL, refreshTTL)
+	handlers := handler.NewHandlers(service, accessTTL, refreshTTL, env == "prod")
 	limiter := httpmw.NewIPRateLimiter(10, time.Minute)
 
 	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/.well-known/jwks.json", handler.JWKSHandler(publicKey, keyID))
 
-	r.Get("/swagger/*", httpSwagger.Handler(
-		httpSwagger.URL("/swagger/doc.json"),
-	))
+	if env != "prod" {
+		r.Get("/swagger/*", httpSwagger.Handler(
+			httpSwagger.URL("/swagger/doc.json"),
+		))
+	}
 
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {

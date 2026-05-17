@@ -5,10 +5,9 @@
 // @host            localhost:8080
 // @BasePath        /api/v1
 
-// @securityDefinitions.apikey BearerAuth
-// @in              header
-// @name            Authorization
-// @description     Enter the token with the `Bearer ` prefix, e.g. "Bearer eyJ..."
+// @securityDefinitions.apikey CookieAuth
+// @in              cookie
+// @name            access_token
 package main
 
 import (

@@ -29,7 +29,7 @@ const (
 
 func newHandlers(t *testing.T, svc AuthService) *Handlers {
 	t.Helper()
-	return NewHandlers(svc, testAccessTTL, testRefreshTTL)
+	return NewHandlers(svc, testAccessTTL, testRefreshTTL, false)
 }
 
 func newReq(t *testing.T, method, path string, body any) *http.Request {

@@ -65,7 +65,7 @@ const docTemplate = `{
         },
         "/auth/login": {
             "post": {
-                "description": "Authenticate with login and password, receive access + refresh tokens",
+                "description": "Authenticate with login and password; tokens are set as HttpOnly cookies",
                 "consumes": [
                     "application/json"
                 ],
@@ -89,10 +89,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/handler.TokensResponse"
-                        }
+                        "description": "OK"
                     },
                     "400": {
                         "description": "Bad Request",
@@ -123,10 +120,7 @@ const docTemplate = `{
         },
         "/auth/logout": {
             "post": {
-                "description": "Revoke the provided refresh token; idempotent — safe to call even if already logged out",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Revoke the refresh_token cookie; clears both auth cookies",
                 "produces": [
                     "application/json"
                 ],
@@ -134,23 +128,12 @@ const docTemplate = `{
                     "auth"
                 ],
                 "summary": "Logout",
-                "parameters": [
-                    {
-                        "description": "Refresh token to revoke",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.LogoutRequest"
-                        }
-                    }
-                ],
                 "responses": {
                     "204": {
                         "description": "No Content"
                     },
-                    "400": {
-                        "description": "Bad Request",
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -174,7 +157,7 @@ const docTemplate = `{
             "get": {
                 "security": [
                     {
-                        "BearerAuth": []
+                        "CookieAuth": []
                     }
                 ],
                 "description": "Returns profile of the authenticated user",
@@ -215,10 +198,7 @@ const docTemplate = `{
         },
         "/auth/refresh": {
             "post": {
-                "description": "Exchange a valid refresh token for a new access + refresh token pair (rotation)",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Exchange a valid refresh_token cookie for a new access + refresh token pair (rotation)",
                 "produces": [
                     "application/json"
                 ],
@@ -226,32 +206,12 @@ const docTemplate = `{
                     "auth"
                 ],
                 "summary": "Refresh tokens",
-                "parameters": [
-                    {
-                        "description": "Refresh token",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.RefreshRequest"
-                        }
-                    }
-                ],
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/handler.TokensResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
+                        "description": "OK"
                     },
                     "401": {
-                        "description": "Token invalid, expired, or already used",
+                        "description": "Cookie missing, token invalid, expired, or already used",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponse"
                         }
@@ -273,7 +233,7 @@ const docTemplate = `{
         },
         "/auth/register": {
             "post": {
-                "description": "Create a new user account; returns access + refresh tokens on success",
+                "description": "Create a new user account; tokens are set as HttpOnly cookies on success",
                 "consumes": [
                     "application/json"
                 ],
@@ -297,10 +257,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/handler.TokensResponse"
-                        }
+                        "description": "Created"
                     },
                     "400": {
                         "description": "Bad Request",
@@ -350,14 +307,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.LogoutRequest": {
-            "type": "object",
-            "properties": {
-                "refresh_token": {
-                    "type": "string"
-                }
-            }
-        },
         "handler.MeResponse": {
             "type": "object",
             "properties": {
@@ -372,14 +321,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.RefreshRequest": {
-            "type": "object",
-            "properties": {
-                "refresh_token": {
-                    "type": "string"
-                }
-            }
-        },
         "handler.RegisterRequest": {
             "type": "object",
             "properties": {
@@ -390,25 +331,13 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "handler.TokensResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "refresh_token": {
-                    "type": "string"
-                }
-            }
         }
     },
     "securityDefinitions": {
-        "BearerAuth": {
-            "description": "Enter the token with the ` + "`" + `Bearer ` + "`" + ` prefix, e.g. \"Bearer eyJ...\"",
+        "CookieAuth": {
             "type": "apiKey",
-            "name": "Authorization",
-            "in": "header"
+            "name": "access_token",
+            "in": "cookie"
         }
     }
 }`

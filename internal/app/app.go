@@ -68,7 +68,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return uuid.Parse(claims.Subject)
 	}
 
-	router := httpRouter.Router(authUC, publicKey, cfg.JWTKeyID, parseToken, cfg.AccessTTL, cfg.RefreshTTL)
+	router := httpRouter.Router(authUC, publicKey, cfg.JWTKeyID, parseToken, cfg.AccessTTL, cfg.RefreshTTL, cfg.Env)
 	
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,
