@@ -11,13 +11,12 @@ import (
 
 func (uc *AuthUsecase) Login(ctx context.Context, login, password string) (*AuthTokens, error) {
 	login = normalizeLogin(login)
-	if login == "" || password == "" {
+	if login == "" || password == "" || len(password) > 72 {
 		return nil, domain.ErrInvalidInput
 	}
 
-	u, err := uc.UsersRepo.GetByLogin(ctx, login)
+	u, err := uc.usersRepo.GetByLogin(ctx, login)
 	if err != nil {
-		// не раскрываем детали
 		if errors.Is(err, domain.ErrUserNotFound) {
 			return nil, domain.ErrInvalidCredentials
 		}
@@ -27,11 +26,11 @@ func (uc *AuthUsecase) Login(ctx context.Context, login, password string) (*Auth
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	if !uc.Hasher.CompareHashAndPassword(u.PasswordHash, password) {
+	if !uc.hasher.CompareHashAndPassword(u.PasswordHash, password) {
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	access, err := uc.TokenManager.IssueAccessToken(u.ID, u.Role, uc.AccessTTL)
+	access, err := uc.tokenManager.IssueAccessToken(u.ID, u.Role, uc.accessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -45,11 +44,11 @@ func (uc *AuthUsecase) Login(ctx context.Context, login, password string) (*Auth
 		ID:        uuid.New(),
 		UserID:    u.ID,
 		TokenHash: refreshHash,
-		ExpiresAt: time.Now().UTC().Add(uc.RefreshTTL),
+		ExpiresAt: time.Now().UTC().Add(uc.refreshTTL),
 		CreatedAt: time.Now().UTC(),
 	}
 
-	_, err = uc.SessionsRepo.Create(ctx, session)
+	_, err = uc.sessionsRepo.Create(ctx, session)
 	if err != nil {
 		return nil, err
 	}

@@ -5,7 +5,6 @@ import (
 	"auth-mytierlist/internal/config"
 	bcrypthasher "auth-mytierlist/internal/pkg/security/hasher"
 	jwtmanager "auth-mytierlist/internal/pkg/token/jwt"
-
 	httpRouter "auth-mytierlist/internal/transport/http"
 	"auth-mytierlist/internal/usecase"
 	"context"
@@ -17,6 +16,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
@@ -24,7 +25,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	pgsql, err := postgresql.New(ctx, cfg.DatabaseURL, log)
 	if err != nil {
-		return fmt.Errorf("%s: Failed to connect to database. Error: %s", op, err.Error())
+		return fmt.Errorf("%s: failed to connect to database: %w", op, err)
 	}
 	defer pgsql.Close()
 
@@ -59,7 +60,15 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		cfg.RefreshTTL,
 	)
 
-	router := httpRouter.Router(authUC, publicKey, cfg.JWTKeyID)
+	parseToken := func(token string) (uuid.UUID, error) {
+		claims, err := tokenManager.ParseAccessToken(token)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		return uuid.Parse(claims.Subject)
+	}
+
+	router := httpRouter.Router(authUC, publicKey, cfg.JWTKeyID, parseToken)
 	
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,

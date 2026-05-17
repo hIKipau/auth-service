@@ -3,7 +3,6 @@ package usecase
 import (
 	"auth-mytierlist/internal/domain"
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -12,17 +11,11 @@ import (
 
 func (uc *AuthUsecase) Register(ctx context.Context, login, password string) (*AuthTokens, error) {
 	login = normalizeLogin(login)
-	if login == "" || password == "" {
+	if login == "" || password == "" || len(password) > 72 {
 		return nil, domain.ErrInvalidInput
 	}
 
-	// Можно без этого pre-check (уникальность ловится в repo),
-	// но так можно вернуть красивый ErrUserAlreadyExists до INSERT.
-	if u, err := uc.UsersRepo.GetByLogin(ctx, login); err == nil && u != nil {
-		return nil, domain.ErrUserAlreadyExists
-	}
-
-	hash, err := uc.Hasher.HashPassword(password)
+	hash, err := uc.hasher.HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
@@ -35,15 +28,12 @@ func (uc *AuthUsecase) Register(ctx context.Context, login, password string) (*A
 		CreatedAt:    time.Now().UTC(),
 	}
 
-	userID, err := uc.UsersRepo.Create(ctx, user)
+	userID, err := uc.usersRepo.Create(ctx, user)
 	if err != nil {
-		if errors.Is(err, domain.ErrUserAlreadyExists) {
-			return nil, err
-		}
 		return nil, err
 	}
 
-	access, err := uc.TokenManager.IssueAccessToken(userID, user.Role, uc.AccessTTL)
+	access, err := uc.tokenManager.IssueAccessToken(userID, user.Role, uc.accessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +47,11 @@ func (uc *AuthUsecase) Register(ctx context.Context, login, password string) (*A
 		ID:        uuid.New(),
 		UserID:    userID,
 		TokenHash: refreshHash,
-		ExpiresAt: time.Now().UTC().Add(uc.RefreshTTL),
+		ExpiresAt: time.Now().UTC().Add(uc.refreshTTL),
 		CreatedAt: time.Now().UTC(),
 	}
 
-	_, err = uc.SessionsRepo.Create(ctx, session)
+	_, err = uc.sessionsRepo.Create(ctx, session)
 	if err != nil {
 		return nil, err
 	}

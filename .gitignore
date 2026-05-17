@@ -1,1 +1,4 @@
-.pem
+*.pem
+.env
+keys/
+docs/*.txt

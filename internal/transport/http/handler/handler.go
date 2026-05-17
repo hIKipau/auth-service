@@ -2,7 +2,7 @@ package handler
 
 import (
 	"auth-mytierlist/internal/domain"
-	"auth-mytierlist/internal/usecase"
+	httpmw "auth-mytierlist/internal/transport/http/middleware"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -10,19 +10,29 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"strings"
-
-	"github.com/google/uuid"
 )
 
 type Handlers struct {
-	uc *usecase.AuthUsecase
+	uc AuthService
 }
 
-func NewHandlers(service *usecase.AuthUsecase) *Handlers {
+func NewHandlers(service AuthService) *Handlers {
 	return &Handlers{uc: service}
 }
 
+// Login godoc
+// @Summary      Login
+// @Description  Authenticate with login and password, receive access + refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      LoginRequest   true  "Credentials"
+// @Success      200      {object}  TokensResponse
+// @Failure      400      {object}  ErrorResponse
+// @Failure      401      {object}  ErrorResponse
+// @Failure      429      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Router       /auth/login [post]
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -58,6 +68,13 @@ func base64URLUInt(n *big.Int) string {
 	return base64.RawURLEncoding.EncodeToString(n.Bytes())
 }
 
+// JWKSHandler godoc
+// @Summary      JSON Web Key Set
+// @Description  Returns the RSA public key set used to verify access tokens (RS256)
+// @Tags         auth
+// @Produce      json
+// @Success      200  {object}  object{keys=[]object{kty=string,use=string,alg=string,kid=string,n=string,e=string}}
+// @Router       /.well-known/jwks.json [get]
 func JWKSHandler(publicKey *rsa.PublicKey, kid string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := jwks{
@@ -74,10 +91,24 @@ func JWKSHandler(publicKey *rsa.PublicKey, kid string) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 
+// Register godoc
+// @Summary      Register
+// @Description  Create a new user account; returns access + refresh tokens on success
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      RegisterRequest  true  "Registration data"
+// @Success      201      {object}  TokensResponse
+// @Failure      400      {object}  ErrorResponse
+// @Failure      409      {object}  ErrorResponse  "Login already taken"
+// @Failure      429      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Router       /auth/register [post]
 func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -90,12 +121,25 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, TokensResponse{
+	writeJSON(w, http.StatusCreated, TokensResponse{
 		AccessToken:  toks.AccessToken,
 		RefreshToken: toks.RefreshToken,
 	})
 }
 
+// Refresh godoc
+// @Summary      Refresh tokens
+// @Description  Exchange a valid refresh token for a new access + refresh token pair (rotation)
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      RefreshRequest  true  "Refresh token"
+// @Success      200      {object}  TokensResponse
+// @Failure      400      {object}  ErrorResponse
+// @Failure      401      {object}  ErrorResponse  "Token invalid, expired, or already used"
+// @Failure      429      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Router       /auth/refresh [post]
 func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req RefreshRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -114,6 +158,18 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Logout godoc
+// @Summary      Logout
+// @Description  Revoke the provided refresh token; idempotent — safe to call even if already logged out
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body  LogoutRequest  true  "Refresh token to revoke"
+// @Success      204      "No Content"
+// @Failure      400      {object}  ErrorResponse
+// @Failure      429      {object}  ErrorResponse
+// @Failure      500      {object}  ErrorResponse
+// @Router       /auth/logout [post]
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	var req LogoutRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -125,22 +181,24 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Идемпотентный logout обычно 204 No Content
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Me godoc
+// @Summary      Get current user
+// @Description  Returns profile of the authenticated user
+// @Tags         auth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  MeResponse
+// @Failure      401  {object}  ErrorResponse  "Missing or invalid access token"
+// @Failure      429  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /auth/me [get]
 func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
-	// Правильно: userID должен ставить auth middleware после проверки access token.
-	// Пока middleware нет — временно возьмём X-User-ID.
-	// Заменишь на context value, когда сделаешь middleware.
-	userIDStr := strings.TrimSpace(r.Header.Get("X-User-ID"))
-	if userIDStr == "" {
+	userID, ok := httpmw.UserIDFromContext(r.Context())
+	if !ok {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-		return
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		http.Error(w, `{"error":"invalid user id"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -162,6 +220,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 		http.Error(w, `{"error":"empty body"}`, http.StatusBadRequest)
 		return errors.New("empty body")
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	defer r.Body.Close()
 
 	dec := json.NewDecoder(r.Body)
@@ -191,16 +250,13 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, "invalid input")
-
 	case errors.Is(err, domain.ErrUserAlreadyExists):
 		writeError(w, http.StatusConflict, "user already exists")
-
 	case errors.Is(err, domain.ErrInvalidCredentials),
 		errors.Is(err, domain.ErrSessionNotFound),
 		errors.Is(err, domain.ErrRefreshExpired),
 		errors.Is(err, domain.ErrUserNotFound):
 		writeError(w, http.StatusUnauthorized, "unauthorized")
-
 	default:
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}

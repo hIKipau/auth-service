@@ -13,23 +13,16 @@ func (uc *AuthUsecase) Logout(ctx context.Context, refreshToken string) error {
 
 	tokenHash := hashRefreshToken(refreshToken)
 
-	s, err := uc.SessionsRepo.GetByTokenHash(ctx, tokenHash)
+	s, err := uc.sessionsRepo.GetByTokenHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, domain.ErrSessionNotFound) {
-			// logout идемпотентный: если уже нет сессии — ок
 			return nil
 		}
 		return err
 	}
-	if s == nil {
+	if s == nil || s.RevokedAt != nil {
 		return nil
 	}
 
-	// если уже revoked — тоже ок
-	if s.RevokedAt != nil {
-		return nil
-	}
-
-	// revoke по id
-	return uc.SessionsRepo.Revoke(ctx, s.ID)
+	return uc.sessionsRepo.Revoke(ctx, s.ID)
 }

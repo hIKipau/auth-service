@@ -16,10 +16,9 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshToken string) (*AuthT
 
 	oldHash := hashRefreshToken(refreshToken)
 
-	oldSession, err := uc.SessionsRepo.GetByTokenHash(ctx, oldHash)
+	oldSession, err := uc.sessionsRepo.GetByTokenHash(ctx, oldHash)
 	if err != nil {
 		if errors.Is(err, domain.ErrSessionNotFound) {
-			// не раскрываем: "нет сессии" == "невалидно"
 			return nil, domain.ErrInvalidCredentials
 		}
 		return nil, err
@@ -30,17 +29,15 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshToken string) (*AuthT
 
 	now := time.Now().UTC()
 
-	// reuse / logout / уже использован
 	if oldSession.RevokedAt != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	// истёк
 	if !now.Before(oldSession.ExpiresAt) {
 		return nil, domain.ErrRefreshExpired
 	}
 
-	u, err := uc.UsersRepo.GetByID(ctx, oldSession.UserID)
+	u, err := uc.usersRepo.GetByID(ctx, oldSession.UserID)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			return nil, domain.ErrInvalidCredentials
@@ -51,7 +48,7 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshToken string) (*AuthT
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	access, err := uc.TokenManager.IssueAccessToken(u.ID, u.Role, uc.AccessTTL)
+	access, err := uc.tokenManager.IssueAccessToken(u.ID, u.Role, uc.accessTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -65,13 +62,12 @@ func (uc *AuthUsecase) Refresh(ctx context.Context, refreshToken string) (*AuthT
 		ID:        uuid.New(),
 		UserID:    u.ID,
 		TokenHash: newHash,
-		ExpiresAt: now.Add(uc.RefreshTTL),
+		ExpiresAt: now.Add(uc.refreshTTL),
 		CreatedAt: now,
 	}
 
-	_, err = uc.SessionsRepo.Rotate(ctx, oldSession.ID, newSession)
+	_, err = uc.sessionsRepo.Rotate(ctx, oldSession.ID, newSession)
 	if err != nil {
-		// Это либо гонка (уже успели ротировать), либо уже revoked
 		if errors.Is(err, domain.ErrSessionNotFound) {
 			return nil, domain.ErrInvalidCredentials
 		}

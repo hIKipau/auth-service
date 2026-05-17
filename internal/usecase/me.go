@@ -11,5 +11,5 @@ func (uc *AuthUsecase) Me(ctx context.Context, userID uuid.UUID) (*domain.User, 
 	if userID == uuid.Nil {
 		return nil, domain.ErrInvalidInput
 	}
-	return uc.UsersRepo.GetByID(ctx, userID)
+	return uc.usersRepo.GetByID(ctx, userID)
 }
