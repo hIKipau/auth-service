@@ -2,6 +2,7 @@ package handler
 
 import (
 	"auth-mytierlist/internal/domain"
+	"auth-mytierlist/internal/usecase"
 	httpmw "auth-mytierlist/internal/transport/http/middleware"
 	"crypto/rsa"
 	"encoding/base64"
@@ -10,28 +11,31 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"time"
 )
 
 type Handlers struct {
-	uc AuthService
+	uc        AuthService
+	accessTTL time.Duration
+	refreshTTL time.Duration
 }
 
-func NewHandlers(service AuthService) *Handlers {
-	return &Handlers{uc: service}
+func NewHandlers(service AuthService, accessTTL, refreshTTL time.Duration) *Handlers {
+	return &Handlers{uc: service, accessTTL: accessTTL, refreshTTL: refreshTTL}
 }
 
 // Login godoc
 // @Summary      Login
-// @Description  Authenticate with login and password, receive access + refresh tokens
+// @Description  Authenticate with login and password; tokens are set as HttpOnly cookies
 // @Tags         auth
 // @Accept       json
 // @Produce      json
-// @Param        request  body      LoginRequest   true  "Credentials"
-// @Success      200      {object}  TokensResponse
-// @Failure      400      {object}  ErrorResponse
-// @Failure      401      {object}  ErrorResponse
-// @Failure      429      {object}  ErrorResponse
-// @Failure      500      {object}  ErrorResponse
+// @Param        request  body  LoginRequest  true  "Credentials"
+// @Success      200
+// @Failure      400  {object}  ErrorResponse
+// @Failure      401  {object}  ErrorResponse
+// @Failure      429  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
 // @Router       /auth/login [post]
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -45,10 +49,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, TokensResponse{
-		AccessToken:  toks.AccessToken,
-		RefreshToken: toks.RefreshToken,
-	})
+	h.setTokenCookies(w, toks)
+	w.WriteHeader(http.StatusOK)
 }
 
 type jwk struct {
@@ -98,16 +100,16 @@ func JWKSHandler(publicKey *rsa.PublicKey, kid string) http.HandlerFunc {
 
 // Register godoc
 // @Summary      Register
-// @Description  Create a new user account; returns access + refresh tokens on success
+// @Description  Create a new user account; tokens are set as HttpOnly cookies on success
 // @Tags         auth
 // @Accept       json
 // @Produce      json
-// @Param        request  body      RegisterRequest  true  "Registration data"
-// @Success      201      {object}  TokensResponse
-// @Failure      400      {object}  ErrorResponse
-// @Failure      409      {object}  ErrorResponse  "Login already taken"
-// @Failure      429      {object}  ErrorResponse
-// @Failure      500      {object}  ErrorResponse
+// @Param        request  body  RegisterRequest  true  "Registration data"
+// @Success      201
+// @Failure      400  {object}  ErrorResponse
+// @Failure      409  {object}  ErrorResponse  "Login already taken"
+// @Failure      429  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
 // @Router       /auth/register [post]
 func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
@@ -121,66 +123,60 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, TokensResponse{
-		AccessToken:  toks.AccessToken,
-		RefreshToken: toks.RefreshToken,
-	})
+	h.setTokenCookies(w, toks)
+	w.WriteHeader(http.StatusCreated)
 }
 
 // Refresh godoc
 // @Summary      Refresh tokens
-// @Description  Exchange a valid refresh token for a new access + refresh token pair (rotation)
+// @Description  Exchange a valid refresh_token cookie for a new access + refresh token pair (rotation)
 // @Tags         auth
-// @Accept       json
 // @Produce      json
-// @Param        request  body      RefreshRequest  true  "Refresh token"
-// @Success      200      {object}  TokensResponse
-// @Failure      400      {object}  ErrorResponse
-// @Failure      401      {object}  ErrorResponse  "Token invalid, expired, or already used"
-// @Failure      429      {object}  ErrorResponse
-// @Failure      500      {object}  ErrorResponse
+// @Success      200
+// @Failure      401  {object}  ErrorResponse  "Cookie missing, token invalid, expired, or already used"
+// @Failure      429  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
 // @Router       /auth/refresh [post]
 func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
-	var req RefreshRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	toks, err := h.uc.Refresh(r.Context(), req.RefreshToken)
+	toks, err := h.uc.Refresh(r.Context(), cookie.Value)
 	if err != nil {
 		writeDomainError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, TokensResponse{
-		AccessToken:  toks.AccessToken,
-		RefreshToken: toks.RefreshToken,
-	})
+	h.setTokenCookies(w, toks)
+	w.WriteHeader(http.StatusOK)
 }
 
 // Logout godoc
 // @Summary      Logout
-// @Description  Revoke the provided refresh token; idempotent — safe to call even if already logged out
+// @Description  Revoke the refresh_token cookie; clears both auth cookies
 // @Tags         auth
-// @Accept       json
 // @Produce      json
-// @Param        request  body  LogoutRequest  true  "Refresh token to revoke"
-// @Success      204      "No Content"
-// @Failure      400      {object}  ErrorResponse
-// @Failure      429      {object}  ErrorResponse
-// @Failure      500      {object}  ErrorResponse
+// @Success      204  "No Content"
+// @Failure      401  {object}  ErrorResponse
+// @Failure      429  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
 // @Router       /auth/logout [post]
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
-	var req LogoutRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	if err := h.uc.Logout(r.Context(), req.RefreshToken); err != nil {
+	if err := h.uc.Logout(r.Context(), cookie.Value); err != nil {
 		writeDomainError(w, err)
 		return
 	}
 
+	clearTokenCookies(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -268,4 +264,28 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error": msg,
 	})
+}
+
+func (h *Handlers) setTokenCookies(w http.ResponseWriter, toks *usecase.AuthTokens) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    toks.AccessToken,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+		MaxAge:   int(h.accessTTL.Seconds()),
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    toks.RefreshToken,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Path:     "/",
+		MaxAge:   int(h.refreshTTL.Seconds()),
+	})
+}
+
+func clearTokenCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: "access_token",  HttpOnly: true, Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", HttpOnly: true, Path: "/", MaxAge: -1})
 }

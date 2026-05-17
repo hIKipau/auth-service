@@ -23,12 +23,16 @@ func makeParseToken(id uuid.UUID, err error) func(string) (uuid.UUID, error) {
 	return func(_ string) (uuid.UUID, error) { return id, err }
 }
 
+func withAccessCookie(r *http.Request, value string) *http.Request {
+	r.AddCookie(&http.Cookie{Name: "access_token", Value: value})
+	return r
+}
+
 func TestAuth_Success(t *testing.T) {
 	userID := uuid.New()
 	mw := Auth(makeParseToken(userID, nil))
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer valid_token")
+	r := withAccessCookie(httptest.NewRequest(http.MethodGet, "/", nil), "valid_token")
 	w := httptest.NewRecorder()
 
 	mw(okHandler(t, userID)).ServeHTTP(w, r)
@@ -36,35 +40,9 @@ func TestAuth_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestAuth_MissingHeader(t *testing.T) {
+func TestAuth_MissingCookie(t *testing.T) {
 	mw := Auth(makeParseToken(uuid.Nil, nil))
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	w := httptest.NewRecorder()
-
-	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler must not be called")
-	})).ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuth_WrongScheme(t *testing.T) {
-	mw := Auth(makeParseToken(uuid.Nil, nil))
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
-	w := httptest.NewRecorder()
-
-	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("handler must not be called")
-	})).ServeHTTP(w, r)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestAuth_EmptyToken(t *testing.T) {
-	mw := Auth(makeParseToken(uuid.Nil, nil))
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer ")
 	w := httptest.NewRecorder()
 
 	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,8 +54,8 @@ func TestAuth_EmptyToken(t *testing.T) {
 
 func TestAuth_InvalidToken(t *testing.T) {
 	mw := Auth(makeParseToken(uuid.Nil, assert.AnError))
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer bad_token")
+
+	r := withAccessCookie(httptest.NewRequest(http.MethodGet, "/", nil), "bad_token")
 	w := httptest.NewRecorder()
 
 	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,8 +70,7 @@ func TestAuth_SetsContextValue(t *testing.T) {
 	mw := Auth(makeParseToken(userID, nil))
 
 	var gotID uuid.UUID
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("Authorization", "Bearer tok")
+	r := withAccessCookie(httptest.NewRequest(http.MethodGet, "/", nil), "tok")
 	w := httptest.NewRecorder()
 
 	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

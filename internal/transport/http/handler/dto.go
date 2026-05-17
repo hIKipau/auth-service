@@ -5,26 +5,13 @@ type RegisterRequest struct {
 	Password string `json:"password"`
 }
 
-type ErrorResponse struct {
-	Error string `json:"error"`
-}
-
 type LoginRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
 
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
-type LogoutRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
-type TokensResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+type ErrorResponse struct {
+	Error string `json:"error"`
 }
 
 type MeResponse struct {

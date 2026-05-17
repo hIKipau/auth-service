@@ -14,13 +14,13 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Router(service *usecase.AuthUsecase, publicKey *rsa.PublicKey, keyID string, parseToken func(string) (uuid.UUID, error)) http.Handler {
+func Router(service *usecase.AuthUsecase, publicKey *rsa.PublicKey, keyID string, parseToken func(string) (uuid.UUID, error), accessTTL, refreshTTL time.Duration) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Logger)
 
-	handlers := handler.NewHandlers(service)
+	handlers := handler.NewHandlers(service, accessTTL, refreshTTL)
 	limiter := httpmw.NewIPRateLimiter(10, time.Minute)
 
 	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
