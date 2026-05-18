@@ -35,13 +35,16 @@ func Router(service *usecase.AuthUsecase, publicKey *rsa.PublicKey, keyID string
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/v1", func(r chi.Router) {
 			r.Route("/auth", func(r chi.Router) {
-				r.Use(limiter.Middleware())
+				// Rate limit только на "дорогие" операции: bcrypt, запись в БД
+				r.Group(func(r chi.Router) {
+					r.Use(limiter.Middleware())
+					r.Post("/login", handlers.Login)
+					r.Post("/register", handlers.Register)
+					r.Post("/refresh", handlers.Refresh)
+					r.Post("/logout", handlers.Logout)
+				})
 
-				r.Post("/login", handlers.Login)
-				r.Post("/register", handlers.Register)
-				r.Post("/refresh", handlers.Refresh)
-				r.Post("/logout", handlers.Logout)
-
+				// /me — только JWT-валидация + чтение из БД, rate limit не нужен
 				r.Group(func(r chi.Router) {
 					r.Use(httpmw.Auth(parseToken))
 					r.Get("/me", handlers.Me)
